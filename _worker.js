@@ -1,10 +1,11 @@
 // <!--GAMFC-->version base on commit 43fad05dcdae3b723c53c226f8181fc5bd47223e, time is 2023-06-22 15:20:05 UTC<!--GAMFC-END-->.
 // @ts-ignore
 import { connect } from 'cloudflare:sockets';
+import { Redis } from "@upstash/redis/cloudflare";
 
 // How to generate your own UUID:
 // [Windows] Press "Win + R", input cmd and run:  Powershell -NoExit -Command "[guid]::NewGuid()"
-let userID = '90cd4a77-141a-43c9-991b-08263cfe9c10';
+// let userID = 'b12bb641-3eb5-4aa6-99c4-17a74b9a87e2';
 
 let proxyIP = '';// 小白勿动，该地址并不影响你的网速，这是给CF代理使用的。'cdn.xn--b6gac.eu.org, cdn-all.xn--b6gac.eu.org'
 
@@ -17,16 +18,16 @@ let subProtocol = 'https';
 // Example:  user:pass@host:port  or  host:port
 let socks5Address = '';
 
-if (!isValidUUID(userID)) {
-	throw new Error('uuid is not valid');
-}
+// if (!isValidUUID(userID)) {
+//	throw new Error('uuid is not valid');
+// }
 
 let parsedSocks5Address = {}; 
 let enableSocks = false;
 
 // 虚假uuid和hostname，用于发送给配置生成服务
-let fakeUserID ;
-let fakeHostName ;
+// let fakeUserID ;
+// let fakeHostName ;
 let noTLS = 'false'; 
 const expire = 4102329600;//2099-12-31
 let proxyIPs;
@@ -88,15 +89,15 @@ export default {
 		try {
 			const UA = request.headers.get('User-Agent') || 'null';
 			const userAgent = UA.toLowerCase();
-			userID = (env.UUID || userID).toLowerCase();
+			// userID = (env.UUID || userID).toLowerCase();
 
-			const currentDate = new Date();
-			currentDate.setHours(0, 0, 0, 0); 
-			const timestamp = Math.ceil(currentDate.getTime() / 1000);
-			const fakeUserIDMD5 = await MD5MD5(`${userID}${timestamp}`);
-			fakeUserID = fakeUserIDMD5.slice(0, 8) + "-" + fakeUserIDMD5.slice(8, 12) + "-" + fakeUserIDMD5.slice(12, 16) + "-" + fakeUserIDMD5.slice(16, 20) + "-" + fakeUserIDMD5.slice(20);
-			fakeHostName = fakeUserIDMD5.slice(6, 9) + "." + fakeUserIDMD5.slice(13, 19);
-			//console.log(`虚假UUID: ${fakeUserID}`); // 打印fakeID
+			// const currentDate = new Date();
+			// currentDate.setHours(0, 0, 0, 0); 
+			// const timestamp = Math.ceil(currentDate.getTime() / 1000);
+			// const fakeUserIDMD5 = await MD5MD5(`${userID}${timestamp}`);
+			// fakeUserID = fakeUserIDMD5.slice(0, 8) + "-" + fakeUserIDMD5.slice(8, 12) + "-" + fakeUserIDMD5.slice(12, 16) + "-" + fakeUserIDMD5.slice(16, 20) + "-" + fakeUserIDMD5.slice(20);
+			// fakeHostName = fakeUserIDMD5.slice(6, 9) + "." + fakeUserIDMD5.slice(13, 19);
+			// console.log(`虚假UUID: ${fakeUserID}`); // 打印fakeID
 
 			proxyIP = env.PROXYIP || proxyIP;
 			proxyIPs = await ADD(proxyIP);
@@ -147,8 +148,8 @@ export default {
 			if (url.searchParams.has('notls')) noTLS = 'true';
 			if (!upgradeHeader || upgradeHeader !== 'websocket') {
 				// const url = new URL(request.url);
-				switch (url.pathname.toLowerCase()) {
-				case '/':
+				let pathname = url.pathname.toLowerCase()
+				if (pathname == '/') {
 					if (env.URL302) return Response.redirect(env.URL302, 302);
 					else if (env.URL) return await proxyURL(env.URL, url);
 					else return new Response(JSON.stringify(request.cf, null, 4), {
@@ -157,59 +158,66 @@ export default {
 							'content-type': 'application/json',
 						},
 					});
-				case `/${fakeUserID}`:
-					const fakeConfig = await getVLESSConfig(userID, request.headers.get('Host'), sub, 'CF-Workers-SUB', RproxyIP, url);
-					return new Response(`${fakeConfig}`, { status: 200 });
-				case `/${userID}`: {
-					await sendMessage(`#获取订阅 ${FileName}`, request.headers.get('CF-Connecting-IP'), `UA: ${UA}</tg-spoiler>\n域名: ${url.hostname}\n<tg-spoiler>入口: ${url.pathname + url.search}</tg-spoiler>`);
-					const vlessConfig = await getVLESSConfig(userID, request.headers.get('Host'), sub, UA, RproxyIP, url);
-					const now = Date.now();
-					//const timestamp = Math.floor(now / 1000);
-					const today = new Date(now);
-					today.setHours(0, 0, 0, 0);
-					const UD = Math.floor(((now - today.getTime())/86400000) * 24 * 1099511627776 / 2);
-					let pagesSum = UD;
-					let workersSum = UD;
-					let total = 24 * 1099511627776 ;
-					if (env.CFEMAIL && env.CFKEY){
-						const email = env.CFEMAIL;
-						const key = env.CFKEY;
-						const accountIndex = env.CFID || 0;
-						const accountId = await getAccountId(email, key);
-						if (accountId){
-							const now = new Date()
-							now.setUTCHours(0, 0, 0, 0)
-							const startDate = now.toISOString()
-							const endDate = new Date().toISOString();
-							const Sum = await getSum(accountId, accountIndex, email, key, startDate, endDate);
-							pagesSum = Sum[0];
-							workersSum = Sum[1];
-							total = 102400 ;
+				} else {
+					if (/^\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(pathname)) {
+						const uuid = pathname.substring(1)
+						const redis = Redis.fromEnv(env);
+						let info = await redis.hget('fake-users', uuid)
+						if (info && info.userID) {
+							const fakeConfig = await getVLESSConfig(info.userID, request.headers.get('Host'), uuid, info.fakeHostName, sub, 'CF-Workers-SUB', RproxyIP, url);
+							return new Response(`${fakeConfig}`, { status: 200 });
+						}
+						info = await redis.hget('users', uuid)
+						if (info && info.fakeUserID) {
+							await sendMessage(`#获取订阅 ${FileName}`, request.headers.get('CF-Connecting-IP'), `UA: ${UA}</tg-spoiler>\n域名: ${url.hostname}\n<tg-spoiler>入口: ${url.pathname + url.search}</tg-spoiler>`);
+							const vlessConfig = await getVLESSConfig(uuid, request.headers.get('Host'), info.fakeUserID, info.fakeHostName, sub, UA, RproxyIP, url);
+							const now = Date.now();
+							//const timestamp = Math.floor(now / 1000);
+							const today = new Date(now);
+							today.setHours(0, 0, 0, 0);
+							const UD = Math.floor(((now - today.getTime())/86400000) * 24 * 1099511627776 / 2);
+							let pagesSum = UD;
+							let workersSum = UD;
+							let total = 24 * 1099511627776 ;
+							if (env.CFEMAIL && env.CFKEY){
+								const email = env.CFEMAIL;
+								const key = env.CFKEY;
+								const accountIndex = env.CFID || 0;
+								const accountId = await getAccountId(email, key);
+								if (accountId){
+									const now = new Date()
+									now.setUTCHours(0, 0, 0, 0)
+									const startDate = now.toISOString()
+									const endDate = new Date().toISOString();
+									const Sum = await getSum(accountId, accountIndex, email, key, startDate, endDate);
+									pagesSum = Sum[0];
+									workersSum = Sum[1];
+									total = 102400 ;
+								}
+							}
+							//console.log(`pagesSum: ${pagesSum}\nworkersSum: ${workersSum}\ntotal: ${total}`);
+							if (userAgent && userAgent.includes('mozilla')){
+								return new Response(`${vlessConfig}`, {
+									status: 200,
+									headers: {
+										"Content-Type": "text/plain;charset=utf-8",
+										"Profile-Update-Interval": "6",
+										"Subscription-Userinfo": `upload=${pagesSum}; download=${workersSum}; total=${total}; expire=${expire}`,
+									}
+								});
+							} else {
+								return new Response(`${vlessConfig}`, {
+									status: 200,
+									headers: {
+										"Content-Disposition": `attachment; filename=${FileName}; filename*=utf-8''${encodeURIComponent(FileName)}`,
+										"Content-Type": "text/plain;charset=utf-8",
+										"Profile-Update-Interval": "6",
+										"Subscription-Userinfo": `upload=${pagesSum}; download=${workersSum}; total=${total}; expire=${expire}`,
+									}
+								});
+							}
 						}
 					}
-					//console.log(`pagesSum: ${pagesSum}\nworkersSum: ${workersSum}\ntotal: ${total}`);
-					if (userAgent && userAgent.includes('mozilla')){
-						return new Response(`${vlessConfig}`, {
-							status: 200,
-							headers: {
-								"Content-Type": "text/plain;charset=utf-8",
-								"Profile-Update-Interval": "6",
-								"Subscription-Userinfo": `upload=${pagesSum}; download=${workersSum}; total=${total}; expire=${expire}`,
-							}
-						});
-					} else {
-						return new Response(`${vlessConfig}`, {
-							status: 200,
-							headers: {
-								"Content-Disposition": `attachment; filename=${FileName}; filename*=utf-8''${encodeURIComponent(FileName)}`,
-								"Content-Type": "text/plain;charset=utf-8",
-								"Profile-Update-Interval": "6",
-								"Subscription-Userinfo": `upload=${pagesSum}; download=${workersSum}; total=${total}; expire=${expire}`,
-							}
-						});
-					}
-				}
-				default:
 					if (env.URL302) return Response.redirect(env.URL302, 302);
 					else if (env.URL) return await proxyURL(env.URL, url);
 					else return new Response('不用怀疑！你UUID就是错的！！！', { status: 404 });
@@ -311,7 +319,7 @@ async function vlessOverWSHandler(request) {
 				rawDataIndex,
 				vlessVersion = new Uint8Array([0, 0]),
 				isUDP,
-			} = processVlessHeader(chunk, userID);
+			} = processVlessHeader(chunk);
 			// 设置地址和端口信息，用于日志
 			address = addressRemote;
 			portWithRandomLog = `${portRemote}--${Math.random()} ${isUDP ? 'udp ' : 'tcp '} `;
@@ -541,10 +549,9 @@ function makeReadableWebSocketStream(webSocketServer, earlyDataHeader, log) {
 /**
  * 解析 VLESS 协议的头部数据
  * @param { ArrayBuffer} vlessBuffer VLESS 协议的原始头部数据
- * @param {string} userID 用于验证的用户 ID
  * @returns {Object} 解析结果，包括是否有错误、错误信息、远程地址信息等
  */
-function processVlessHeader(vlessBuffer, userID) {
+function processVlessHeader(vlessBuffer) {
 	// 检查数据长度是否足够（至少需要 24 字节）
 	if (vlessBuffer.byteLength < 24) {
 		return {
@@ -560,7 +567,10 @@ function processVlessHeader(vlessBuffer, userID) {
 	let isUDP = false;
 
 	// 验证用户 ID（接下来的 16 个字节）
-	if (stringify(new Uint8Array(vlessBuffer.slice(1, 17))) === userID) {
+	const uuid = stringify(new Uint8Array(vlessBuffer.slice(1, 17)))
+	const redis = Redis.fromEnv(env);
+	const info = redis.hget('users', uuid)
+	if (info) {
 		isValidUser = true;
 	}
 	// 如果用户 ID 无效，返回错误
@@ -1144,10 +1154,12 @@ function socks5AddressParser(address) {
  * @param {string} content 需要处理的内容
  * @param {string} userID 真实的用户ID
  * @param {string} hostName 真实的主机名
+ * @param {string} fakeUserID 虚假的用户ID
+ * @param {string} fakeHostName 虚假的主机名
  * @param {boolean} isBase64 内容是否是Base64编码的
  * @returns {string} 恢复真实信息后的内容
  */
-function revertFakeInfo(content, userID, hostName, isBase64) {
+function revertFakeInfo(content, userID, hostName, fakeUserID, fakeHostName, isBase64) {
 	if (isBase64) content = atob(content);  // 如果内容是Base64编码的，先解码
 	
 	// 使用正则表达式全局替换（'g'标志）
@@ -1325,11 +1337,13 @@ let subParams = ['sub','base64','b64','clash','singbox','sb'];
 /**
  * @param {string} userID
  * @param {string | null} hostName
+ * @param {string} fakeUserID
+ * @param {string | null} fakeHostName
  * @param {string} sub
  * @param {string} UA
  * @returns {Promise<string>}
  */
-async function getVLESSConfig(userID, hostName, sub, UA, RproxyIP, _url) {
+async function getVLESSConfig(userID, hostName, fakeUserID, fakeHostName, sub, UA, RproxyIP, _url) {
 	checkSUB(hostName);
 	const userAgent = UA.toLowerCase();
 	const Config = 配置信息(userID , hostName);
@@ -1528,7 +1542,7 @@ https://github.com/cmliu/edgetunnel
 
 			if (_url.pathname == `/${fakeUserID}`) return content;
 
-			return revertFakeInfo(content, userID, hostName, isBase64);
+			return revertFakeInfo(content, userID, hostName, fakeUserID, fakeHostName, isBase64);
 
 		} catch (error) {
 			console.error('Error fetching content:', error);
